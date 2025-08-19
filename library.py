@@ -1,13 +1,13 @@
-from peewee import SqliteDatabase, Model, IntegerField, CharField, ForeignKeyField
+from peewee import SqliteDatabase, Model, IntegerField, CharField, ForeignKeyField, DatabaseProxy
 from peewee import OperationalError, IntegrityError
 import sqlite3
 
 
-db = SqliteDatabase('library.db')
+database_proxy = DatabaseProxy()
 
 class BaseModel(Model):
     class Meta:
-        database = db
+        database = database_proxy
 
 class Book(BaseModel):
     table_name = 'books'
@@ -22,17 +22,16 @@ class Book(BaseModel):
     def create_table():
         """Create the books table"""
         try:
-            with db.connection_context():
-                db.execute_sql("""
-                    CREATE TABLE IF NOT EXISTS books (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        title TEXT,
-                        author TEXT NOT NULL,
-                        year INTEGER,
-                        total_copies INTEGER NOT NULL DEFAULT 1,
-                        lent_copies INTEGER NOT NULL DEFAULT 0
-                    )
-                """)
+            database_proxy.execute_sql("""
+                CREATE TABLE IF NOT EXISTS books (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT,
+                    author TEXT NOT NULL,
+                    year INTEGER,
+                    total_copies INTEGER NOT NULL DEFAULT 1,
+                    lent_copies INTEGER NOT NULL DEFAULT 0
+                )
+            """)
             print("Books table created successfully.")
         except OperationalError as e:
             print(f"Error creating books table: {e}")
@@ -40,23 +39,22 @@ class Book(BaseModel):
     def save(self):
         """Save or update a book"""
         try:
-            with db.connection_context():
-                if self.id is None:
-                    cursor = db.execute_sql(
-                        "INSERT INTO books (title, author, year, total_copies, lent_copies) VALUES (?, ?, ?, ?, ?)",
-                        (self.title, self.author, self.year, self.total_copies, self.lent_copies)
-                    )
-                    self.id = cursor.lastrowid
-                    print(f"Book '{self.title}' added successfully.")
+            if self.id is None:
+                cursor = database_proxy.execute_sql(
+                    "INSERT INTO books (title, author, year, total_copies, lent_copies) VALUES (?, ?, ?, ?, ?)",
+                    (self.title, self.author, self.year, self.total_copies, self.lent_copies)
+                )
+                self.id = cursor.lastrowid
+                print(f"Book '{self.title}' added successfully.")
+            else:
+                result = database_proxy.execute_sql(
+                    "UPDATE books SET title = ?, author = ?, year = ?, total_copies = ?, lent_copies = ? WHERE id = ?",
+                    (self.title, self.author, self.year, self.total_copies, self.lent_copies, self.id)
+                )
+                if result.rowcount > 0:
+                    print(f"Book with ID {self.id} updated successfully.")
                 else:
-                    result = db.execute_sql(
-                        "UPDATE books SET title = ?, author = ?, year = ?, total_copies = ?, lent_copies = ? WHERE id = ?",
-                        (self.title, self.author, self.year, self.total_copies, self.lent_copies, self.id)
-                    )
-                    if result.rowcount > 0:
-                        print(f"Book with ID {self.id} updated successfully.")
-                    else:
-                        print(f"Book with ID {self.id} not found.")
+                    print(f"Book with ID {self.id} not found.")
         except IntegrityError as e:
             print(f"Error saving book: {e}")
 
@@ -64,25 +62,24 @@ class Book(BaseModel):
     def get(title=None, author=None):
         """Retrieve a book by title or author"""
         try:
-            with db.connection_context():
-                query = "SELECT id, title, author, year, total_copies, lent_copies FROM books WHERE "
-                params = []
-                conditions = []
-                if title:
-                    conditions.append("title LIKE ?")
-                    params.append(f"%{title}%")
-                if author:
-                    conditions.append("author LIKE ?")
-                    params.append(f"%{author}%")
-                if not conditions:
-                    raise ValueError("At least one of title or author must be provided.")
-                query += " OR ".join(conditions)
-                cursor = db.execute_sql(query, params)
-                row = cursor.fetchone()
-                if row:
-                    return Book(id=row[0], title=row[1], author=row[2], year=row[3], total_copies=row[4], lent_copies=row[5])
-                else:
-                    raise ValueError(f"Book with title '{title}' or author '{author}' not found.")
+            query = "SELECT id, title, author, year, total_copies, lent_copies FROM books WHERE "
+            params = []
+            conditions = []
+            if title:
+                conditions.append("title LIKE ?")
+                params.append(f"%{title}%")
+            if author:
+                conditions.append("author LIKE ?")
+                params.append(f"%{author}%")
+            if not conditions:
+                raise ValueError("At least one of title or author must be provided.")
+            query += " OR ".join(conditions)
+            cursor = database_proxy.execute_sql(query, params)
+            row = cursor.fetchone()
+            if row:
+                return Book(id=row[0], title=row[1], author=row[2], year=row[3], total_copies=row[4], lent_copies=row[5])
+            else:
+                raise ValueError(f"Book with title '{title}' or author '{author}' not found.")
         except Exception as e:
             print(f"Error retrieving book: {e}")
             raise
@@ -90,16 +87,15 @@ class Book(BaseModel):
     def delete(self):
         """Delete a book"""
         try:
-            with db.connection_context():
-                result = db.execute_sql(
-                    "DELETE FROM books WHERE id = ?",
-                    (self.id,)
-                )
-                if result.rowcount > 0:
-                    print(f"Book with ID {self.id} deleted successfully.")
-                    self.id = None
-                else:
-                    print(f"Book with ID {self.id} not found.")
+            result = database_proxy.execute_sql(
+                "DELETE FROM books WHERE id = ?",
+                (self.id,)
+            )
+            if result.rowcount > 0:
+                print(f"Book with ID {self.id} deleted successfully.")
+                self.id = None
+            else:
+                print(f"Book with ID {self.id} not found.")
         except Exception as e:
             print(f"Error deleting book: {e}")
 
@@ -116,17 +112,16 @@ class User(BaseModel):
     def create_table():
         """Create the users table"""
         try:
-            with db.connection_context():
-                db.execute_sql("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        first_name TEXT,
-                        last_name TEXT,
-                        age INTEGER NOT NULL,
-                        gender TEXT NOT NULL,
-                        email TEXT NOT NULL UNIQUE
-                    )
-                """)
+            database_proxy.execute_sql("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    age INTEGER NOT NULL,
+                    gender TEXT NOT NULL,
+                    email TEXT NOT NULL UNIQUE
+                )
+            """)
             print("Users table created successfully.")
         except OperationalError as e:
             print(f"Error creating users table: {e}")
@@ -136,42 +131,41 @@ class User(BaseModel):
         try:
             if self.age < 15:
                 raise ValueError("User must be at least 15 years old.")
-            with db.connection_context():
-                if self.id is None:
-                    cursor = db.execute_sql(
-                        "INSERT INTO users (first_name, last_name, age, gender, email) VALUES (?, ?, ?, ?, ?)",
-                        (self.first_name, self.last_name, self.age, self.gender, self.email)
-                    )
-                    self.id = cursor.lastrowid
-                    print(f"User with email {self.email} added successfully.")
+            if self.id is None:
+                cursor = database_proxy.execute_sql(
+                    "INSERT INTO users (first_name, last_name, age, gender, email) VALUES (?, ?, ?, ?, ?)",
+                    (self.first_name, self.last_name, self.age, self.gender, self.email)
+                )
+                self.id = cursor.lastrowid
+                print(f"User with email {self.email} added successfully.")
+            else:
+                result = database_proxy.execute_sql(
+                    "UPDATE users SET first_name = ?, last_name = ?, age = ?, gender = ?, email = ? WHERE id = ?",
+                    (self.first_name, self.last_name, self.age, self.gender, self.email, self.id)
+                )
+                if result.rowcount > 0:
+                    print(f"User with ID {self.id} updated successfully.")
                 else:
-                    result = db.execute_sql(
-                        "UPDATE users SET first_name = ?, last_name = ?, age = ?, gender = ?, email = ? WHERE id = ?",
-                        (self.first_name, self.last_name, self.age, self.gender, self.email, self.id)
-                    )
-                    if result.rowcount > 0:
-                        print(f"User with ID {self.id} updated successfully.")
-                    else:
-                        print(f"User with ID {self.id} not found.")
+                    print(f"User with ID {self.id} not found.")
         except IntegrityError as e:
             print(f"Error saving user: {e}")
         except ValueError as e:
             print(f"Error: {e}")
+            raise
 
     @staticmethod
     def get(email):
         """Retrieve a user by email"""
         try:
-            with db.connection_context():
-                cursor = db.execute_sql(
-                    "SELECT id, first_name, last_name, age, gender, email FROM users WHERE email = ?",
-                    (email,)
-                )
-                row = cursor.fetchone()
-                if row:
-                    return User(id=row[0], first_name=row[1], last_name=row[2], age=row[3], gender=row[4], email=row[5])
-                else:
-                    raise ValueError(f"User with email {email} not found.")
+            cursor = database_proxy.execute_sql(
+                "SELECT id, first_name, last_name, age, gender, email FROM users WHERE email = ?",
+                (email,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return User(id=row[0], first_name=row[1], last_name=row[2], age=row[3], gender=row[4], email=row[5])
+            else:
+                raise ValueError(f"User with email {email} not found.")
         except Exception as e:
             print(f"Error retrieving user: {e}")
             raise
@@ -179,16 +173,15 @@ class User(BaseModel):
     def delete(self):
         """Delete a user"""
         try:
-            with db.connection_context():
-                result = db.execute_sql(
-                    "DELETE FROM users WHERE id = ?",
-                    (self.id,)
-                )
-                if result.rowcount > 0:
-                    print(f"User with ID {self.id} deleted successfully.")
-                    self.id = None
-                else:
-                    print(f"User with ID {self.id} not found.")
+            result = database_proxy.execute_sql(
+                "DELETE FROM users WHERE id = ?",
+                (self.id,)
+            )
+            if result.rowcount > 0:
+                print(f"User with ID {self.id} deleted successfully.")
+                self.id = None
+            else:
+                print(f"User with ID {self.id} not found.")
         except Exception as e:
             print(f"Error deleting user: {e}")
 
@@ -202,16 +195,15 @@ class Loan(BaseModel):
     def create_table():
         """Create the loans table"""
         try:
-            with db.connection_context():
-                db.execute_sql("""
-                    CREATE TABLE IF NOT EXISTS loans (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        book_id INTEGER NOT NULL,
-                        user_id INTEGER NOT NULL,
-                        FOREIGN KEY (book_id) REFERENCES books(id),
-                        FOREIGN KEY (user_id) REFERENCES users(id)
-                    )
-                """)
+            database_proxy.execute_sql("""
+                CREATE TABLE IF NOT EXISTS loans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    book_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    FOREIGN KEY (book_id) REFERENCES books(id),
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            """)
             print("Loans table created successfully.")
         except OperationalError as e:
             print(f"Error creating loans table: {e}")
@@ -220,63 +212,66 @@ class Loan(BaseModel):
     def lend_book(book_id, user_id):
         """Lend a book to a user"""
         try:
-            with db.connection_context():
-                cursor = db.execute_sql(
-                    "SELECT COUNT(*) FROM loans WHERE user_id = ?",
-                    (user_id,)
-                )
-                current_loans = cursor.fetchone()[0]
-                if current_loans >= 2:
-                    raise ValueError(f"User with ID {user_id} cannot borrow more than two books.")
+            cursor = database_proxy.execute_sql(
+                "SELECT COUNT(*) FROM loans WHERE user_id = ?",
+                (user_id,)
+            )
+            current_loans = cursor.fetchone()[0]
+            if current_loans >= 2:
+                raise ValueError(f"User with ID {user_id} cannot borrow more than two books.")
 
-                cursor = db.execute_sql(
-                    "SELECT total_copies, lent_copies FROM books WHERE id = ?",
-                    (book_id,)
-                )
-                book_data = cursor.fetchone()
-                if not book_data:
-                    raise ValueError(f"Book with ID {book_id} not found.")
-                total_copies, lent_copies = book_data
-                if lent_copies >= total_copies:
-                    raise ValueError(f"No copies of book with ID {book_id} are available.")
+            cursor = database_proxy.execute_sql(
+                "SELECT total_copies, lent_copies FROM books WHERE id = ?",
+                (book_id,)
+            )
+            book_data = cursor.fetchone()
+            if not book_data:
+                raise ValueError(f"Book with ID {book_id} not found.")
+            total_copies, lent_copies = book_data
+            if lent_copies >= total_copies:
+                raise ValueError(f"No copies of book with ID {book_id} are available.")
 
 
-                db.execute_sql(
-                    "INSERT INTO loans (book_id, user_id) VALUES (?, ?)",
-                    (book_id, user_id)
-                )
+            database_proxy.execute_sql(
+                "INSERT INTO loans (book_id, user_id) VALUES (?, ?)",
+                (book_id, user_id)
+            )
 
-                db.execute_sql(
-                    "UPDATE books SET lent_copies = lent_copies + 1 WHERE id = ?",
-                    (book_id,)
-                )
-                print(f"Book with ID {book_id} lent to user with ID {user_id} successfully.")
+            database_proxy.execute_sql(
+                "UPDATE books SET lent_copies = lent_copies + 1 WHERE id = ?",
+                (book_id,)
+            )
+            print(f"Book with ID {book_id} lent to user with ID {user_id} successfully.")
         except IntegrityError as e:
             print(f"Error lending book: {e}")
         except Exception as e:
             print(f"Error: {e}")
+            raise
 
     @staticmethod
     def return_book(book_id, user_id):
         """Return a book"""
         try:
-            with db.connection_context():
-                result = db.execute_sql(
-                    "DELETE FROM loans WHERE book_id = ? AND user_id = ?",
-                    (book_id, user_id)
+            result = database_proxy.execute_sql(
+                "DELETE FROM loans WHERE book_id = ? AND user_id = ?",
+                (book_id, user_id)
+            )
+            if result.rowcount > 0:
+                database_proxy.execute_sql(
+                    "UPDATE books SET lent_copies = lent_copies - 1 WHERE id = ?",
+                    (book_id,)
                 )
-                if result.rowcount > 0:
-                    db.execute_sql(
-                        "UPDATE books SET lent_copies = lent_copies - 1 WHERE id = ?",
-                        (book_id,)
-                    )
-                    print(f"Book with ID {book_id} returned by user with ID {user_id} successfully.")
-                else:
-                    print(f"Book with ID {book_id} was not borrowed by user with ID {user_id}.")
+                print(f"Book with ID {book_id} returned by user with ID {user_id} successfully.")
+            else:
+                print(f"Book with ID {book_id} was not borrowed by user with ID {user_id}.")
         except Exception as e:
             print(f"Error returning book: {e}")
 
 if __name__ == "__main__":
+    db = SqliteDatabase('library.db')
+    database_proxy.initialize(db)
+    database_proxy.connect()
+
     Book.create_table()
     User.create_table()
     Loan.create_table()
@@ -312,3 +307,5 @@ if __name__ == "__main__":
 
     
     Loan.return_book(book_id=book1.id, user_id=user1.id)
+
+    database_proxy.close()
